@@ -1,0 +1,14 @@
+StepFlux - Installation
+
+macOS
+  1. StepFlux.vst3 nach  ~/Library/Audio/Plug-Ins/VST3/  kopieren
+     (optional StepFlux.component nach ~/Library/Audio/Plug-Ins/Components/ fuer AU)
+  2. Im Terminal einmalig die Download-Sperre entfernen:
+       xattr -cr ~/Library/Audio/Plug-Ins/VST3/StepFlux.vst3
+  3. Ableton Live: Einstellungen > Plug-Ins > "VST3 Systemordner verwenden" an, dann "Neu scannen".
+
+Windows
+  1. Den Ordner StepFlux.vst3 nach  C:\Program Files\Common Files\VST3\  kopieren
+  2. Ableton Live: Einstellungen > Plug-Ins > "VST3 Systemordner verwenden" an, dann "Neu scannen".
+
+Das Plugin erscheint unter Plug-Ins > VST3 > LionAudio > StepFlux.

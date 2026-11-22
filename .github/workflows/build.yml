@@ -1,0 +1,59 @@
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            cmake_args: -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          - name: Windows
+            os: windows-2022
+            cmake_args: -A x64
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSTEPFLUX_BUILD_TESTS=ON ${{ matrix.cmake_args }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run tests
+        shell: bash
+        run: |
+          TEST=$(find build -type f \( -name StepFluxTests -o -name StepFluxTests.exe \) | head -n 1)
+          "$TEST"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          cp -R build/StepFlux_artefacts/Release/VST3/StepFlux.vst3 dist/
+          cp -R build/StepFlux_artefacts/Release/AU/StepFlux.component dist/
+          codesign --force --deep --sign - dist/StepFlux.vst3
+          codesign --force --deep --sign - dist/StepFlux.component
+          cp INSTALL.txt dist/
+          cd dist && zip -r -y ../StepFlux-macOS.zip .
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item -Recurse build/StepFlux_artefacts/Release/VST3/StepFlux.vst3 dist/
+          Copy-Item INSTALL.txt dist/
+          Compress-Archive -Path dist/* -DestinationPath StepFlux-Windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StepFlux-${{ matrix.name }}
+          path: StepFlux-${{ matrix.name }}.zip
