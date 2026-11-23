@@ -79,8 +79,10 @@ jobs:
           EOS
           chmod +x pkgscripts/postinstall
           pkgbuild --analyze --root pkgroot components.plist
-          /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" components.plist
-          /usr/libexec/PlistBuddy -c "Set :1:BundleIsRelocatable false" components.plist
+          for i in 0 1 2 3; do
+            /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" components.plist 2>/dev/null || true
+          done
+          cat components.plist
           pkgbuild --root pkgroot --component-plist components.plist --scripts pkgscripts \
             --identifier com.loomn.stepflux.pkg --version "0.1.${{ github.run_number }}" \
             --install-location / StepFlux-macOS.pkg
