@@ -117,7 +117,7 @@ namespace FilterTypes
         const auto& t = all()[(size_t) juce::jlimit (0, (int) all().size() - 1, typeIndex)];
         switch (t.family)
         {
-            case LP: case BP: case HP: return { "Cutoff", "Res", t.variant == Clean ? "" : "Drive" };
+            case LP: case BP: case HP: return { "Cutoff", "Res", (t.variant == Clean || t.variant == Smooth) ? "Mix" : "Drive" };
             case Notch:   return { "Cutoff", "Amount", "" };
             case Peak:    return { "Cutoff", "Gain", "BW" };
             case CombPos: case CombNeg: case CombPM: return { "Cutoff", "F-Back", "Damp" };
@@ -148,13 +148,14 @@ public:
     }
 
     /** freq in Hz, p2/p3 = 0..1 */
-    void setParams (int typeIndex, float freqHz, float p2In, float p3In)
+    void setParams (int typeIndex, float freqHz, float p2In, float p3In, float mixIn = 1.0f)
     {
         const auto& all = FilterTypes::all();
         info = all[(size_t) juce::jlimit (0, (int) all.size() - 1, typeIndex)];
         freq = juce::jlimit (20.0f, juce::jmin (20000.0f, sr * 0.45f), freqHz);
         p2 = juce::jlimit (0.0f, 1.0f, p2In);
         p3 = juce::jlimit (0.0f, 1.0f, p3In);
+        wetMix = juce::jlimit (0.0f, 1.0f, mixIn);
 
         using namespace FilterTypes;
         float k = 1.0f;
@@ -281,13 +282,15 @@ private:
     {
         using namespace FilterTypes;
         const bool clean = info.variant == Clean;
-        const float drive = clean ? 1.0f : 1.0f + p3 * p3 * 15.0f;
+        const bool noDrive = clean || info.variant == Smooth; // these types show a Mix knob instead of Drive
+        const float drive = noDrive ? 1.0f : 1.0f + p3 * p3 * 15.0f;
         const float comp = 1.0f / std::sqrt (drive);
         for (int c = 0; c < 2; ++c)
         {
             for (int i = 0; i < n; ++i)
             {
-                float x = io[c][i] * drive;
+                const float dryIn = io[c][i];
+                float x = dryIn * drive;
                 switch (info.variant)
                 {
                     case Smooth: if (drive > 1.001f) x = fastTanh (x); break;
@@ -307,7 +310,7 @@ private:
                     else                        { s.ic1 = juce::jlimit (-16.0f, 16.0f, s.ic1); s.ic2 = juce::jlimit (-16.0f, 16.0f, s.ic2); }
                     x = info.family == LP ? s.lp : (info.family == BP ? s.bp * juce::jmax (0.5f, s.k) : s.hp);
                 }
-                io[c][i] = sanitize (x * comp);
+                io[c][i] = sanitize (dryIn + wetMix * (x * comp - dryIn));
             }
         }
     }
@@ -338,7 +341,7 @@ private:
 
     float sr = 44100.0f;
     FilterTypes::Info info { "Lowpass 24dB Edgy", FilterTypes::LP, FilterTypes::Edgy, 2 };
-    float freq = 1000.0f, p2 = 0, p3 = 0;
+    float freq = 1000.0f, p2 = 0, p3 = 0, wetMix = 1.0f;
     std::array<std::array<Svf, 2>, 2> svf;
     std::array<DelayLine, 2> comb;
     std::array<float, 2> combLp { 0, 0 }, hold { 0, 0 }, holdPhase { 1.0f, 1.0f };

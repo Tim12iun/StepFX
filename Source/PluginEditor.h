@@ -7,9 +7,11 @@ namespace ui
 {
 namespace col
 {
-    const juce::Colour bg { 0xff16181d }, panel { 0xff22262e }, panelHi { 0xff2b303a }, border { 0xff363c48 },
-        text { 0xffd9dde6 }, dim { 0xff7f8796 }, accent { 0xff2fd6b5 }, accentDim { 0xff1b6f61 },
-        ring { 0xffffb347 }, lane { 0xff1a1d23 }, warn { 0xffff6b6b };
+    const juce::Colour panelA { 0xff633a34 }, panelB { 0xff57302b }, panelDark { 0xff4a2a26 }, sep { 0xff3a211e },
+        rowA { 0xff4b2622 }, rowB { 0xff3c1d1b }, rowSel { 0xff5d342e }, strip { 0xff4a1e1b }, stripBtn { 0xff6b3d38 },
+        lane { 0xff1b1d26 }, text { 0xffe9e1dd }, dim { 0xff9c8580 }, amber { 0xfff5b041 }, amberDim { 0xff9a6a35 },
+        knobA { 0xff5b3b35 }, knobB { 0xff3f2420 }, blue { 0xff5b8fd6 }, blueHi { 0xff68a3ff }, blueLine { 0xff5b9cf0 },
+        stepOff { 0xff222938 }, numOff { 0xff35415c }, num { 0xffd3d7df };
 }
 
 class Laf : public juce::LookAndFeel_V4
@@ -19,24 +21,29 @@ public:
     void drawRotarySlider (juce::Graphics&, int x, int y, int w, int h, float pos, float startAngle, float endAngle, juce::Slider&) override;
     void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool highlighted, bool down) override;
     void drawButtonBackground (juce::Graphics&, juce::Button&, const juce::Colour&, bool highlighted, bool down) override;
+    void drawButtonText (juce::Graphics&, juce::TextButton&, bool highlighted, bool down) override;
     void drawComboBox (juce::Graphics&, int w, int h, bool down, int bx, int by, int bw, int bh, juce::ComboBox&) override;
     void drawLinearSlider (juce::Graphics&, int x, int y, int w, int h, float pos, float minPos, float maxPos, juce::Slider::SliderStyle, juce::Slider&) override;
-    juce::Font getComboBoxFont (juce::ComboBox&) override { return juce::Font (juce::FontOptions (12.0f)); }
-    juce::Font getTextButtonFont (juce::TextButton&, int) override { return juce::Font (juce::FontOptions (12.0f)); }
-    juce::Font getPopupMenuFont() override { return juce::Font (juce::FontOptions (13.0f)); }
+    juce::Font getComboBoxFont (juce::ComboBox&) override;
+    juce::Font getPopupMenuFont() override { return juce::Font (juce::FontOptions (13.5f)); }
     juce::Font getLabelFont (juce::Label& l) override { return l.getFont(); }
     void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
     juce::Label* createSliderTextBox (juce::Slider&) override;
 };
 
 //==============================================================================
+/** Rotary knob with a caption above; the caption shows the value while the pointer is over the knob. */
 class Knob : public juce::Component
 {
 public:
     Knob (juce::AudioProcessorValueTreeState& s, const juce::String& paramId, const juce::String& captionText, int targetIndex = -1);
+    ~Knob() override;
     void resized() override;
     void setCaption (const juce::String& t);
     void attach (const juce::String& paramId);
+    void mouseEnter (const juce::MouseEvent&) override { hover = true; updateCaption(); }
+    void mouseExit (const juce::MouseEvent&) override { hover = false; updateCaption(); }
+    void updateCaption();
 
     juce::Slider slider;
     juce::Label caption;
@@ -44,7 +51,10 @@ public:
 
 private:
     juce::AudioProcessorValueTreeState& state;
+    juce::RangedAudioParameter* param = nullptr;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> att;
+    juce::String name;
+    bool hover = false;
 };
 
 //==============================================================================
@@ -92,7 +102,7 @@ private:
     void updateScroll();
     int stepAtX (float x) const;
     void noteRange (int step, int& first, int& last) const;
-    float noteEndX (int first, int last) const;
+    float noteEndX (int last) const;
     void setLevelAt (int step, float y);
     void changed();
 
@@ -122,7 +132,7 @@ public:
     static void setRelease (sfx::PatternData&, float);
 
 private:
-    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().reduced (8.0f, 8.0f); }
+    juce::Rectangle<float> plot() const { return getLocalBounds().toFloat().withTrimmedBottom (26.0f).reduced (14.0f, 10.0f); }
     juce::Point<float> dot (int index) const;
     sfx::PatternData pat;
     int drag = -1;
@@ -182,24 +192,22 @@ private:
     static juce::File userPatternDir();
     void updateRings();
     void updateDynamicLayout();
-    void layoutPanels();
+    ui::Knob* addKnob (const char* id, const char* caption, int target, int cx, int cy);
 
     StepFxProcessor& proc;
     ui::Laf laf;
     int sel = 0;
     int seenStateVersion = 0;
-    int lastFilterType = -1;
-    bool lastSync = false, firstLayout = true;
+    int lastFilterType = -1, lastSync = -1, lastOnMask = -1;
     juce::Random rng;
-
-    struct PanelRect { juce::Rectangle<int> r; juce::String title; };
-    std::vector<PanelRect> panels;
 
     // processors
     juce::OwnedArray<ui::Knob> knobs;
     ui::Knob* kFilter[3] {};
+    ui::Knob* kFilterMix = nullptr;
     ui::Knob* kDelayMsL = nullptr, *kDelayMsR = nullptr, *kDelayDivL = nullptr, *kDelayDivR = nullptr;
-    juce::ToggleButton filterOn, modOn, delayOn, distOn, reverbOn, delaySync { "Sync" };
+    std::vector<ui::Knob*> groupMod, groupDelay, groupFilter, groupDist, groupReverb;
+    juce::ToggleButton filterOn, modOn, delayOn, distOn, reverbOn, delaySync;
     juce::ComboBox filterType, delayFilter, reverbType;
     juce::OwnedArray<APVTS::ButtonAttachment> buttonAtts;
     juce::OwnedArray<APVTS::ComboBoxAttachment> comboAtts;
@@ -207,22 +215,20 @@ private:
 
     // xy
     ui::XYPad xyPad;
-    juce::ToggleButton xOn { "X" }, yOn { "Y" };
+    juce::ToggleButton xOn, yOn;
     juce::ComboBox xyTarget[4];
-    juce::Slider xDepth, yDepth;
+    juce::Slider xyDepth[4];
 
     // modulators
     juce::ToggleButton modOnBtn[sfx::kNumMods];
-    juce::TextButton modSelBtn[sfx::kNumMods];
     juce::ComboBox modTarget[sfx::kNumMods];
     ui::Knob depthKnob, rateKnob, swingKnob;
-    juce::TextButton prevBtn { "<" }, nextBtn { ">" }, presetBtn, actionBtn { "Actions" };
+    juce::TextButton prevBtn, nextBtn, presetBtn, actionBtn;
     juce::TextEditor nameEditor;
     juce::TextButton saveBtn { "Save" }, cancelBtn { "Cancel" };
     ui::StepEditor stepEditor;
     ui::EnvelopeDisplay envDisplay;
     juce::Slider envA, envH, envR;
-    juce::Label envLabels[3], lengthLabel;
     ui::OrderStrip orderStrip;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StepFxEditor)

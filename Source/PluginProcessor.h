@@ -8,7 +8,7 @@ namespace sfx
 enum Target
 {
     tNone = 0, tGateMix, tGateAdd, tPan,
-    tFilterCutoff, tFilterRes, tFilterDrive,
+    tFilterCutoff, tFilterRes, tFilterDrive, tFilterMix,
     tModDelay, tModRate, tModDepth, tModFeedback, tModMix,
     tDelayFeedback, tDelayCutoff, tDelayMix,
     tExciter, tDirt,
@@ -98,8 +98,8 @@ private:
     std::atomic<float>* pFilterOn = nullptr, *pFilterType = nullptr, *pModOn = nullptr, *pDelayOn = nullptr,
         *pDelaySync = nullptr, *pDelayTimeL = nullptr, *pDelayTimeR = nullptr, *pDelayDivL = nullptr, *pDelayDivR = nullptr,
         *pDelayFilter = nullptr, *pDistOn = nullptr, *pReverbOn = nullptr, *pReverbType = nullptr,
-        *pXyX = nullptr, *pXyY = nullptr, *pXOn = nullptr, *pYOn = nullptr, *pXDepth = nullptr, *pYDepth = nullptr;
-    std::array<std::atomic<float>*, 4> pXyTarget {};
+        *pXyX = nullptr, *pXyY = nullptr, *pXOn = nullptr, *pYOn = nullptr;
+    std::array<std::atomic<float>*, 4> pXyTarget {}, pXyDepth {};
 
     // dsp
     sfx::MultiFilter filter;

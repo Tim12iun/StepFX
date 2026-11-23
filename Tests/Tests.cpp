@@ -302,7 +302,7 @@ static void testGateAndLoop()
         setParam (p, "masterInput", 0.0f); setParam (p, "masterMix", 100.0f);
         // X axis drives Master Output from -24 dB (param at minimum) to +24 dB (pad fully right)
         setParam (p, "masterOutput", -24.0f);
-        setParam (p, "xTarget1", (float) (tMasterOutput - 2)); setParam (p, "xyX", 1.0f); setParam (p, "xDepth", 50.0f);
+        setParam (p, "xTarget1", (float) (tMasterOutput - 2)); setParam (p, "xyX", 1.0f); setParam (p, "xDepth1", 50.0f);
         out = render (p, ph, 0.3, sr);
         CHECK_NEAR (meanAbs (out, 6000, 12000), 0.5, 0.01); // -24 dB + half range = 0 dB
         setParam (p, "xOn", 0.0f);

@@ -6,7 +6,7 @@ namespace sfx
 struct TargetInfo { const char* name; const char* paramId; };
 static const TargetInfo kTargets[kNumTargets] = {
     { "None", nullptr }, { "Gate Mix", nullptr }, { "Gate Add", nullptr }, { "Pan", nullptr },
-    { "Filter Cutoff", "filterCutoff" }, { "Filter Res", "filterRes" }, { "Filter Drive", "filterDrive" },
+    { "Filter Cutoff", "filterCutoff" }, { "Filter Res", "filterRes" }, { "Filter Drive", "filterDrive" }, { "Filter Mix", "filterMix" },
     { "Mod FX Delay", "modDelay" }, { "Mod FX Rate", "modRate" }, { "Mod FX Depth", "modDepth" },
     { "Mod FX Feedback", "modFeedback" }, { "Mod FX Mix", "modMix" },
     { "Delay Feedback", "delayFeedback" }, { "Delay Cutoff", "delayCutoff" }, { "Delay Mix", "delayMix" },
@@ -111,6 +111,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout StepFxProcessor::createLayou
     flt ("filterCutoff", "Filter Cutoff", skewed (20.0f, 20000.0f, 1000.0f), 8000.0f, hzText);
     pct ("filterRes", "Filter Res", 20.0f);
     pct ("filterDrive", "Filter Drive", 0.0f);
+    pct ("filterMix", "Filter Mix", 100.0f);
 
     // mod fx
     l.add (std::make_unique<B> (pid ("modOn"), "Mod FX On", false));
@@ -157,8 +158,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout StepFxProcessor::createLayou
     l.add (std::make_unique<C> (pid ("xTarget2"), "X Target 2", xyTargetNames(), 0));
     l.add (std::make_unique<C> (pid ("yTarget1"), "Y Target 1", xyTargetNames(), 0));
     l.add (std::make_unique<C> (pid ("yTarget2"), "Y Target 2", xyTargetNames(), 0));
-    bipct ("xDepth", "X Depth", 100.0f);
-    bipct ("yDepth", "Y Depth", 100.0f);
+    bipct ("xDepth1", "X Depth 1", 100.0f);
+    bipct ("xDepth2", "X Depth 2", 100.0f);
+    bipct ("yDepth1", "Y Depth 1", 100.0f);
+    bipct ("yDepth2", "Y Depth 2", 100.0f);
     return l;
 }
 
@@ -187,7 +190,10 @@ StepFxProcessor::StepFxProcessor()
             jassert (targetParam[(size_t) t] != nullptr);
         }
     }
-    for (int b = 0; b < kNumBlocks; ++b) order[(size_t) b].store (b);
+    {
+        static const int defaultOrder[kNumBlocks] = { bGate, bPan, bDirt, bFilter, bReverb, bDelay, bExciter, bModFx };
+        for (int b = 0; b < kNumBlocks; ++b) order[(size_t) b].store (defaultOrder[b]);
+    }
 
     auto raw = [this] (const char* id) { auto* p = apvts.getRawParameterValue (id); jassert (p != nullptr); return p; };
     pFilterOn = raw ("filterOn"); pFilterType = raw ("filterType"); pModOn = raw ("modOn"); pDelayOn = raw ("delayOn");
@@ -195,7 +201,7 @@ StepFxProcessor::StepFxProcessor()
     pDelayDivL = raw ("delayDivL"); pDelayDivR = raw ("delayDivR"); pDelayFilter = raw ("delayFilter");
     pDistOn = raw ("distOn"); pReverbOn = raw ("reverbOn"); pReverbType = raw ("reverbType");
     pXyX = raw ("xyX"); pXyY = raw ("xyY"); pXOn = raw ("xOn"); pYOn = raw ("yOn");
-    pXDepth = raw ("xDepth"); pYDepth = raw ("yDepth");
+    pXyDepth = { raw ("xDepth1"), raw ("xDepth2"), raw ("yDepth1"), raw ("yDepth2") };
     pXyTarget = { raw ("xTarget1"), raw ("xTarget2"), raw ("yTarget1"), raw ("yTarget2") };
 }
 
@@ -260,7 +266,7 @@ void StepFxProcessor::updateEffects (float sr, double bpm, const float* eff)
     juce::ignoreUnused (sr);
     auto val = [&] (int t) { return targetParam[(size_t) t]->convertFrom0to1 (juce::jlimit (0.0f, 1.0f, eff[t])); };
 
-    filter.setParams ((int) pFilterType->load(), val (tFilterCutoff), eff[tFilterRes], eff[tFilterDrive]);
+    filter.setParams ((int) pFilterType->load(), val (tFilterCutoff), eff[tFilterRes], eff[tFilterDrive], eff[tFilterMix]);
     modFx.setParams (val (tModDelay), val (tModRate), eff[tModDepth], eff[tModFeedback], eff[tModMix]);
 
     float secL, secR;
@@ -349,12 +355,11 @@ void StepFxProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
         // XY pad
         {
             const float x = pXyX->load(), y = pXyY->load();
-            const float xd = pXOn->load() > 0.5f ? pXDepth->load() * 0.01f : 0.0f;
-            const float yd = pYOn->load() > 0.5f ? pYDepth->load() * 0.01f : 0.0f;
+            const bool xOn = pXOn->load() > 0.5f, yOn = pYOn->load() > 0.5f;
             for (int k = 0; k < 4; ++k)
             {
                 const int t = juce::jlimit (0, kNumTargets - 1, xyChoiceToTarget ((int) pXyTarget[(size_t) k]->load()));
-                if (t != tNone) offs[t] += k < 2 ? x * xd : y * yd;
+                if (t != tNone && (k < 2 ? xOn : yOn)) offs[t] += (k < 2 ? x : y) * pXyDepth[(size_t) k]->load() * 0.01f;
             }
         }
 
