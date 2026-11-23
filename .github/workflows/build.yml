@@ -36,6 +36,17 @@ jobs:
           TEST=$(find build -type f \( -name StepFluxTests -o -name StepFluxTests.exe \) | head -n 1)
           "$TEST"
 
+      - name: Validate Audio Unit (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R build/StepFlux_artefacts/Release/AU/StepFlux.component ~/Library/Audio/Plug-Ins/Components/
+          codesign --force --deep --sign - ~/Library/Audio/Plug-Ins/Components/StepFlux.component
+          killall -9 AudioComponentRegistrar || true
+          sleep 3
+          auval -a | grep -i lion || true
+          auval -v aufx Stfx Lion
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
