@@ -72,6 +72,14 @@ public:
     void setPattern (int mod, const sfx::PatternData& p, const juce::String& name);
     juce::String getPatternName (int mod) const { return patternNames[(size_t) mod]; }
 
+    // complete presets (all knobs, patterns and the effect order)
+    static juce::StringArray factoryPresetNames();
+    void loadFactoryPreset (int index);
+    bool savePresetFile (const juce::File& file, const juce::String& name);
+    bool loadPresetFile (const juce::File& file);
+    juce::String getPresetName() const { return presetName; }
+    static juce::File userPresetDir();
+
     std::array<int, sfx::kNumBlocks> getOrder() const;
     void setOrder (const std::array<int, sfx::kNumBlocks>& newOrder);
 
@@ -85,6 +93,10 @@ public:
 
 private:
     void updateEffects (float sr, double bpm, const float* eff);
+    std::unique_ptr<juce::XmlElement> stateToXml();
+    void stateFromXml (const juce::XmlElement& xml);
+    void setParamValue (const juce::String& id, float realValue);
+    juce::String presetName { "Default" };
 
     std::array<sfx::SharedPattern, sfx::kNumMods> patterns;
     std::array<juce::String, sfx::kNumMods> patternNames;

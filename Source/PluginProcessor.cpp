@@ -477,7 +477,7 @@ void StepFxProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Midi
 }
 
 //==============================================================================
-void StepFxProcessor::getStateInformation (juce::MemoryBlock& destData)
+std::unique_ptr<juce::XmlElement> StepFxProcessor::stateToXml()
 {
     auto state = apvts.copyState();
     while (state.getChildWithName ("Extra").isValid())
@@ -487,6 +487,7 @@ void StepFxProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::StringArray o;
     for (int v : getOrder()) o.add (juce::String (v));
     extra.setProperty ("order", o.joinIntoString (" "), nullptr);
+    extra.setProperty ("preset", presetName, nullptr);
     for (int m = 0; m < kNumMods; ++m)
     {
         auto t = patterns[(size_t) m].load().toValueTree ("Pattern");
@@ -494,16 +495,13 @@ void StepFxProcessor::getStateInformation (juce::MemoryBlock& destData)
         extra.appendChild (t, nullptr);
     }
     state.appendChild (extra, nullptr);
-
-    if (auto xml = state.createXml())
-        copyXmlToBinary (*xml, destData);
+    return state.createXml();
 }
 
-void StepFxProcessor::setStateInformation (const void* data, int sizeInBytes)
+void StepFxProcessor::stateFromXml (const juce::XmlElement& xml)
 {
-    auto xml = getXmlFromBinary (data, sizeInBytes);
-    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType())) return;
-    auto state = juce::ValueTree::fromXml (*xml);
+    if (! xml.hasTagName (apvts.state.getType())) return;
+    auto state = juce::ValueTree::fromXml (xml);
     if (! state.isValid()) return;
 
     auto extra = state.getChildWithName ("Extra");
@@ -516,6 +514,7 @@ void StepFxProcessor::setStateInformation (const void* data, int sizeInBytes)
             for (int i = 0; i < kNumBlocks; ++i) o[(size_t) i] = tokens[i].getIntValue();
             setOrder (o);
         }
+        presetName = extra.getProperty ("preset", "Custom").toString();
         int m = 0;
         for (auto child : extra)
         {
@@ -526,6 +525,162 @@ void StepFxProcessor::setStateInformation (const void* data, int sizeInBytes)
         state.removeChild (extra, nullptr);
     }
     apvts.replaceState (state);
+    stateVersion.fetch_add (1);
+}
+
+void StepFxProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    if (auto xml = stateToXml())
+        copyXmlToBinary (*xml, destData);
+}
+
+void StepFxProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    if (auto xml = getXmlFromBinary (data, sizeInBytes))
+        stateFromXml (*xml);
+}
+
+//==============================================================================
+juce::File StepFxProcessor::userPresetDir()
+{
+    return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("StepFlux").getChildFile ("Presets");
+}
+
+bool StepFxProcessor::savePresetFile (const juce::File& file, const juce::String& name)
+{
+    presetName = name;
+    auto xml = stateToXml();
+    return xml != nullptr && file.getParentDirectory().createDirectory().wasOk() && xml->writeTo (file);
+}
+
+bool StepFxProcessor::loadPresetFile (const juce::File& file)
+{
+    auto xml = juce::parseXML (file);
+    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType())) return false;
+    stateFromXml (*xml);
+    presetName = file.getFileNameWithoutExtension();
+    return true;
+}
+
+void StepFxProcessor::setParamValue (const juce::String& id, float realValue)
+{
+    if (auto* p = apvts.getParameter (id))
+        p->setValueNotifyingHost (p->convertTo0to1 (realValue));
+}
+
+juce::StringArray StepFxProcessor::factoryPresetNames()
+{
+    return { "Default", "Trance Gate", "Tremolo 1/8", "Soft Tremolo 1/16", "Auto Pan", "Filter Steps", "Wobble Filter",
+             "Dub Delay Chop", "Crushed Stairs", "Pumping Reverb", "Sidechain Pump", "Stutter Space", "Chorus Drift",
+             "Ring Sequence", "Comb Melody", "Dirty Offbeat" };
+}
+
+void StepFxProcessor::loadFactoryPreset (int index)
+{
+    const auto names = factoryPresetNames();
+    if (index < 0 || index >= names.size()) return;
+
+    for (auto* p : getParameters())
+        p->setValueNotifyingHost (p->getDefaultValue());
+    setOrder ({ bGate, bPan, bDirt, bFilter, bReverb, bDelay, bExciter, bModFx });
+    for (int m = 0; m < kNumMods; ++m) setPattern (m, PatternData(), "Default");
+
+    auto set = [this] (const char* id, float v) { setParamValue (id, v); };
+    auto filterType = [this] (const char* name)
+    {
+        int i = 0;
+        for (auto& t : FilterTypes::all()) { if (juce::String (t.name) == name) setParamValue ("filterType", (float) i); ++i; }
+    };
+    auto mod = [this] (int m, int target, float depth, const char* rate, const char* pattern, float swing = 0.0f)
+    {
+        const juce::String p = "m" + juce::String (m + 1);
+        setParamValue (p + "On", 1.0f);
+        setParamValue (p + "Target", (float) target);
+        setParamValue (p + "Depth", depth);
+        setParamValue (p + "Rate", (float) juce::jmax (0, rateNames().indexOf (rate)));
+        setParamValue (p + "Swing", swing);
+        const int pi = juce::jmax (0, FactoryPatterns::names().indexOf (pattern));
+        setPattern (m, FactoryPatterns::get (pi), FactoryPatterns::names()[pi]);
+    };
+    auto soften = [this] (int m, float a, float h, float r)
+    {
+        auto p = getPattern (m);
+        p.attack = a; p.hold = h; p.release = r;
+        setPattern (m, p, getPatternName (m));
+    };
+
+    set ("m1On", 0.0f); set ("filterOn", 0.0f); set ("reverbOn", 0.0f);
+    switch (index)
+    {
+        default:
+        case 0: // plugin defaults
+            set ("m1On", 1.0f); set ("filterOn", 1.0f); set ("reverbOn", 1.0f);
+            break;
+        case 1:
+            mod (0, tGateMix, 100.0f, "1/16", "Trance Gate A");
+            set ("reverbOn", 1.0f); set ("reverbMix", 12.0f);
+            break;
+        case 2:
+            mod (0, tGateMix, 100.0f, "1/8", "Square"); soften (0, 0.05f, 0.75f, 0.2f);
+            break;
+        case 3:
+            mod (0, tGateMix, 70.0f, "1/16", "Sine"); soften (0, 0.3f, 0.4f, 0.3f);
+            break;
+        case 4:
+            mod (0, tPan, 100.0f, "1/8", "Sine"); soften (0, 0.5f, 0.0f, 0.5f);
+            break;
+        case 5:
+            set ("filterOn", 1.0f); filterType ("Lowpass 24dB Edgy"); set ("filterCutoff", 300.0f); set ("filterRes", 45.0f);
+            mod (0, tFilterCutoff, 80.0f, "1/16", "Random Walk");
+            break;
+        case 6:
+            set ("filterOn", 1.0f); filterType ("Lowpass 24dB Rich"); set ("filterCutoff", 250.0f); set ("filterRes", 55.0f); set ("filterDrive", 30.0f);
+            mod (0, tFilterCutoff, 75.0f, "1/8", "Triangle"); soften (0, 0.5f, 0.0f, 0.5f);
+            break;
+        case 7:
+            set ("delayOn", 1.0f); set ("delayFeedback", 55.0f); set ("delayCutoff", 2500.0f); set ("delayMix", 0.0f);
+            mod (0, tDelayMix, 70.0f, "1/8", "Pulse 25%");
+            mod (1, tGateMix, 100.0f, "1/16", "Dotted Chop");
+            break;
+        case 8:
+            set ("filterOn", 1.0f); filterType ("Bitcrusher"); set ("filterRes", 20.0f); set ("filterDrive", 100.0f);
+            mod (0, tFilterRes, 70.0f, "1/8", "Stairs 4");
+            break;
+        case 9:
+            set ("reverbOn", 1.0f); set ("reverbTime", 4.0f); set ("reverbMix", 45.0f);
+            mod (0, tReverbMix, -45.0f, "1/4", "Ramp Down");
+            mod (1, tGateMix, 60.0f, "1/16", "Ramp Up");
+            setOrder ({ bPan, bDirt, bFilter, bReverb, bGate, bDelay, bExciter, bModFx });
+            break;
+        case 10:
+            mod (0, tGateMix, 100.0f, "1/4", "Half Time Pump");
+            break;
+        case 11:
+            set ("reverbOn", 1.0f); set ("reverbType", 5.0f); set ("reverbTime", 6.0f); set ("reverbMix", 30.0f);
+            mod (0, tGateMix, 100.0f, "1/32", "Stutter Fill");
+            mod (1, tPan, 80.0f, "1/16", "Square");
+            break;
+        case 12:
+            set ("modOn", 1.0f); set ("modMix", 50.0f); set ("modDepth", 30.0f);
+            mod (0, tModRate, 50.0f, "1/2", "Triangle"); soften (0, 0.5f, 0.0f, 0.5f);
+            mod (1, tModDepth, 40.0f, "1/4", "Sine"); soften (1, 0.5f, 0.0f, 0.5f);
+            break;
+        case 13:
+            set ("filterOn", 1.0f); filterType ("RingMod"); set ("filterCutoff", 200.0f); set ("filterRes", 70.0f);
+            mod (0, tFilterCutoff, 60.0f, "1/8", "Accent 3-3-2");
+            break;
+        case 14:
+            set ("filterOn", 1.0f); filterType ("Comb Pos"); set ("filterCutoff", 220.0f); set ("filterRes", 80.0f); set ("filterDrive", 30.0f);
+            mod (0, tFilterCutoff, 45.0f, "1/8", "Stairs 4");
+            set ("reverbOn", 1.0f);
+            break;
+        case 15:
+            set ("distOn", 1.0f); set ("dirt", 20.0f); set ("exciter", 30.0f);
+            mod (0, tDirt, 70.0f, "1/16", "Offbeat Gate");
+            mod (1, tGateMix, 100.0f, "1/16", "Offbeat Gate");
+            break;
+    }
+    presetName = names[index];
     stateVersion.fetch_add (1);
 }
 

@@ -993,6 +993,12 @@ StepFxEditor::StepFxEditor (StepFxProcessor& p)
     stepEditor.onChange = [this] { pushPattern (stepEditor.getPattern(), "Custom"); };
     addAndMakeVisible (orderStrip);
     orderStrip.setBounds (0, kStripY, kW, kH - kStripY);
+    addAndMakeVisible (globalPresetBtn);
+    globalPresetBtn.getProperties().set ("style", "flat");
+    globalPresetBtn.setTooltip ("Presets (complete settings)");
+    globalPresetBtn.setButtonText (proc.getPresetName());
+    globalPresetBtn.onClick = [this] { showGlobalPresetMenu(); };
+    globalPresetBtn.setBounds (6, kStripY + 6, 190, kH - kStripY - 12);
 
     sendLookAndFeelChange(); // children were created before the look and feel was set
     setSize (kW, kH);
@@ -1101,7 +1107,58 @@ void StepFxEditor::refreshFromProcessor()
     stepEditor.setPattern (pat);
     envDisplay.setPattern (pat);
     presetBtn.setButtonText (proc.getPatternName (sel));
+    globalPresetBtn.setButtonText (proc.getPresetName());
     updateEnvFields();
+}
+
+void StepFxEditor::showGlobalPresetMenu()
+{
+    enum { idSave = 1, idDelete, idFactory = 100, idUser = 1000 };
+    juce::StringArray users;
+    for (auto& f : StepFxProcessor::userPresetDir().findChildFiles (juce::File::findFiles, false, "*.stepflux"))
+        users.add (f.getFileNameWithoutExtension());
+    users.sort (true);
+    const auto current = proc.getPresetName();
+    const auto fnames = StepFxProcessor::factoryPresetNames();
+    juce::PopupMenu m, factory;
+    m.addItem (idSave, "Save Preset As...");
+    m.addItem (idDelete, "Delete User Preset", users.contains (current));
+    m.addSeparator();
+    for (int i = 0; i < fnames.size(); ++i) factory.addItem (idFactory + i, fnames[i], true, fnames[i] == current);
+    m.addSubMenu ("Factory", factory);
+    if (! users.isEmpty())
+    {
+        m.addSectionHeader ("User");
+        for (int i = 0; i < users.size(); ++i) m.addItem (idUser + i, users[i], true, users[i] == current);
+    }
+    juce::Component::SafePointer<StepFxEditor> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (globalPresetBtn).withParentComponent (this), [safe, users, current] (int r)
+    {
+        if (safe == nullptr || r == 0) return;
+        auto& e = *safe;
+        const auto dir = StepFxProcessor::userPresetDir();
+        if (r == idSave) e.saveGlobalPreset();
+        else if (r == idDelete) dir.getChildFile (current + ".stepflux").deleteFile();
+        else if (r >= idUser) e.proc.loadPresetFile (dir.getChildFile (users[r - idUser] + ".stepflux"));
+        else if (r >= idFactory) e.proc.loadFactoryPreset (r - idFactory);
+    });
+}
+
+void StepFxEditor::saveGlobalPreset()
+{
+    auto* w = new juce::AlertWindow ("Save Preset", "Name:", juce::MessageBoxIconType::NoIcon, this);
+    const auto current = proc.getPresetName();
+    w->addTextEditor ("name", StepFxProcessor::factoryPresetNames().contains (current) || current == "Custom" ? "My Preset" : current);
+    w->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<StepFxEditor> safe (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([safe, w] (int result)
+    {
+        const auto name = juce::File::createLegalFileName (w->getTextEditorContents ("name").trim());
+        if (safe == nullptr || result != 1 || name.isEmpty()) return;
+        if (safe->proc.savePresetFile (StepFxProcessor::userPresetDir().getChildFile (name + ".stepflux"), name))
+            safe->globalPresetBtn.setButtonText (name);
+    }), true);
 }
 
 void StepFxEditor::updateEnvFields()

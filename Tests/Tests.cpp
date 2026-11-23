@@ -7,6 +7,7 @@ using namespace sfx;
 
 static int failures = 0, checks = 0;
 #define CHECK(cond) do { ++checks; if (! (cond)) { ++failures; std::cout << "FAIL " << __LINE__ << ": " #cond << std::endl; } } while (false)
+#define check(cond, msg) CHECK(cond)
 #define CHECK_NEAR(a, b, tol) do { ++checks; const double _a = (a), _b = (b); if (std::abs (_a - _b) > (tol)) { ++failures; \
     std::cout << "FAIL " << __LINE__ << ": " #a " = " << _a << ", expected " << _b << std::endl; } } while (false)
 
@@ -399,6 +400,42 @@ static void testStability()
     std::cout << "  stability runs: " << runs << std::endl;
 }
 
+static void testPresets()
+{
+    StepFxProcessor p;
+    p.prepareToPlay (48000.0, 256);
+    const auto names = StepFxProcessor::factoryPresetNames();
+    for (int i = 0; i < names.size(); ++i)
+    {
+        p.loadFactoryPreset (i);
+        check (p.getPresetName() == names[i], "factory preset name");
+        juce::AudioBuffer<float> buf (2, 256);
+        juce::MidiBuffer midi;
+        bool finite = true;
+        for (int b = 0; b < 200; ++b)
+        {
+            for (int c = 0; c < 2; ++c)
+                for (int n = 0; n < 256; ++n) buf.setSample (c, n, 0.5f * std::sin (0.05f * (float) (b * 256 + n)));
+            p.processBlock (buf, midi);
+            for (int c = 0; c < 2; ++c)
+                for (int n = 0; n < 256; ++n) { const float v = buf.getSample (c, n); if (! std::isfinite (v) || std::abs (v) > 8.0f) finite = false; }
+        }
+        check (finite, "factory preset output stays finite and bounded");
+    }
+    // file round trip
+    p.loadFactoryPreset (7);
+    const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("stepflux_test.stepflux");
+    check (p.savePresetFile (file, "stepflux_test"), "preset saved");
+    const auto fb = p.apvts.getParameter ("delayFeedback")->getValue();
+    const auto pat = p.getPattern (1);
+    p.loadFactoryPreset (0);
+    check (p.loadPresetFile (file), "preset loaded");
+    check (std::abs (p.apvts.getParameter ("delayFeedback")->getValue() - fb) < 1.0e-4f, "preset restores parameters");
+    check (p.getPattern (1).numSteps == pat.numSteps && p.getPatternName (1) == "Dotted Chop", "preset restores patterns");
+    check (p.getPresetName() == "stepflux_test", "preset name follows file");
+    file.deleteFile();
+}
+
 static void testState()
 {
     StepFxProcessor a;
@@ -564,6 +601,7 @@ int main (int argc, char** argv)
     std::cout << "gate / loop / pan" << std::endl; testGateAndLoop();
     std::cout << "stability" << std::endl;     testStability();
     std::cout << "state" << std::endl;         testState();
+    std::cout << "presets" << std::endl;       testPresets();
     std::cout << "editor" << std::endl;        testEditor (argc > 1 ? juce::File (argv[1]) : juce::File());
     std::cout << checks << " checks, " << failures << " failures" << std::endl;
     return failures == 0 ? 0 : 1;

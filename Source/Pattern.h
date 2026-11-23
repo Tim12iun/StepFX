@@ -361,7 +361,7 @@ struct FactoryPatterns
             {
                 const char* s = "x.xx.xx.x.xxx.x.";
                 setAll (16, [] (int) { return 1.0f; });
-                for (int i = 0; i < 16; ++i) { p.on[(size_t) i] = s[i] == 'x'; p.length[(size_t) i] = 0.75f; }
+                for (int i = 0; i < 16; ++i) p.on[(size_t) i] = s[i] == 'x';
                 p.attack = 0.02f; p.hold = 0.78f; p.release = 0.2f;
                 break;
             }
@@ -370,7 +370,7 @@ struct FactoryPatterns
                 const char* s = "xx.xx.x.xx.x.xxx";
                 const float lv[] = { 1.0f, 0.6f, 0, 1.0f, 0.5f, 0, 0.8f, 0, 1.0f, 0.6f, 0, 0.9f, 0, 1.0f, 0.7f, 0.4f };
                 setAll (16, [&lv] (int i) { return lv[i]; });
-                for (int i = 0; i < 16; ++i) { p.on[(size_t) i] = s[i] == 'x'; p.length[(size_t) i] = 0.5f; }
+                for (int i = 0; i < 16; ++i) p.on[(size_t) i] = s[i] == 'x';
                 p.attack = 0.0f; p.hold = 0.7f; p.release = 0.3f;
                 break;
             }

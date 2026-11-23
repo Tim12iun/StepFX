@@ -184,6 +184,8 @@ private:
     void updateEnvFields();
     void showPresetMenu();
     void showActionMenu();
+    void showGlobalPresetMenu();
+    void saveGlobalPreset();
     void stepPreset (int delta);
     void loadPresetByName (const juce::String& name);
     void beginSaveAs();
@@ -230,6 +232,7 @@ private:
     ui::EnvelopeDisplay envDisplay;
     juce::Slider envA, envH, envR;
     ui::OrderStrip orderStrip;
+    juce::TextButton globalPresetBtn;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StepFxEditor)
 };
