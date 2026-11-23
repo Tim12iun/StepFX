@@ -1,14 +1,16 @@
-StepFlux - Installation
+StepFlux by loomn - Installation
 
 macOS
-  1. StepFlux.vst3 nach  ~/Library/Audio/Plug-Ins/VST3/  kopieren
-     (optional StepFlux.component nach ~/Library/Audio/Plug-Ins/Components/ fuer AU)
-  2. Im Terminal einmalig die Download-Sperre entfernen:
-       xattr -cr ~/Library/Audio/Plug-Ins/VST3/StepFlux.vst3
-  3. Ableton Live: Einstellungen > Plug-Ins > "VST3 Systemordner verwenden" an, dann "Neu scannen".
+  1. StepFlux-macOS.pkg laden.
+  2. Rechtsklick auf die Datei > "Oeffnen" (bei neueren macOS-Versionen: Systemeinstellungen >
+     Datenschutz & Sicherheit > "Dennoch oeffnen"), weil der Installer nicht von Apple signiert ist.
+  3. Der Installer legt VST3 und AU nach /Library/Audio/Plug-Ins und entfernt die Download-Sperre.
+  4. Ableton Live: Einstellungen > Plug-Ins > VST3 und Audio Units aktivieren, neu scannen.
+     Das Plugin steht unter Plug-Ins > loomn > StepFlux.
+
+Updates
+  Das Plugin prueft beim Oeffnen, ob es einen neueren Build gibt. Unten rechts erscheint dann
+  "Update installieren". Ein Klick laedt und installiert die neue Version, danach Live neu starten.
 
 Windows
-  1. Den Ordner StepFlux.vst3 nach  C:\Program Files\Common Files\VST3\  kopieren
-  2. Ableton Live: Einstellungen > Plug-Ins > "VST3 Systemordner verwenden" an, dann "Neu scannen".
-
-Das Plugin erscheint unter Plug-Ins > VST3 > LionAudio > StepFlux.
+  Den Ordner StepFlux.vst3 nach C:\Program Files\Common Files\VST3\ kopieren und in Live neu scannen.

@@ -1000,13 +1000,160 @@ StepFxEditor::StepFxEditor (StepFxProcessor& p)
     globalPresetBtn.onClick = [this] { showGlobalPresetMenu(); };
     globalPresetBtn.setBounds (6, kStripY + 6, 190, kH - kStripY - 12);
 
+    addAndMakeVisible (buildLabel);
+    buildLabel.setFont (fontOf (11.5f));
+    buildLabel.setColour (juce::Label::textColourId, col::dim.withAlpha (0.7f));
+    buildLabel.setJustificationType (juce::Justification::centredRight);
+    buildLabel.setInterceptsMouseClicks (false, false);
+    buildLabel.setText (STEPFLUX_BUILD > 0 ? "by loomn  |  Build " + juce::String (STEPFLUX_BUILD) : juce::String ("by loomn  |  Dev build"), juce::dontSendNotification);
+    buildLabel.setBounds (kW - 190, kStripY + 6, 180, kH - kStripY - 12);
+    addChildComponent (updateBtn);
+    updateBtn.setColour (juce::TextButton::buttonColourId, col::amber);
+    updateBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff2a1512));
+    updateBtn.setBounds (kW - 226, kStripY + 7, 216, kH - kStripY - 14);
+    updateBtn.onClick = [this]
+    {
+        const int st = updater.state.load();
+        if (st == Updater::available) { updater.wantInstall = true; updater.notify(); }
+        else if (st == Updater::failed)
+            juce::URL ("https://github.com/Tim12iun/StepFX/releases/latest").launchInDefaultBrowser();
+    };
+    if (STEPFLUX_BUILD > 0 && proc.wrapperType != juce::AudioProcessor::wrapperType_Undefined)
+        updater.startThread();
+
     sendLookAndFeelChange(); // children were created before the look and feel was set
     setSize (kW, kH);
     seenStateVersion = proc.stateVersion.load();
     selectMod (0);
+    if (const int st = updater.state.load(); st != lastUpdateState)
+    {
+        lastUpdateState = st;
+        juce::String t;
+        if (st == Updater::available)       t = "Update installieren (Build " + juce::String (updater.latest.load()) + ")";
+        else if (st == Updater::installing) t = "Update wird geladen ...";
+        else if (st == Updater::installed)  t = "Fertig: Live neu starten";
+        else if (st == Updater::failed)     t = "Update manuell laden";
+        updateBtn.setButtonText (t);
+        updateBtn.setVisible (st != Updater::idle);
+        buildLabel.setVisible (st == Updater::idle);
+    }
     updateDynamicLayout();
     updateRings();
     startTimerHz (30);
+}
+
+//==============================================================================
+static std::atomic<int> gLatestBuild { 0 };
+static std::atomic<bool> gUpdateInstalled { false };
+
+bool StepFxEditor::Updater::check()
+{
+    if (gLatestBuild.load() > 0) { latest = gLatestBuild.load(); return true; }
+    const juce::URL url ("https://api.github.com/repos/Tim12iun/StepFX/releases/latest");
+    auto in = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                                         .withConnectionTimeoutMs (4000)
+                                         .withExtraHeaders ("Accept: application/vnd.github+json\r\nUser-Agent: StepFlux"));
+    if (in == nullptr) return false;
+    const auto json = juce::JSON::parse (in->readEntireStreamAsString());
+    const auto tag = json.getProperty ("tag_name", juce::var()).toString();
+    if (! tag.startsWith ("build-")) return false;
+    gLatestBuild = tag.fromFirstOccurrenceOf ("build-", false, false).getIntValue();
+    latest = gLatestBuild.load();
+    return true;
+}
+
+/** Downloads the bundles of the newest build and swaps them into the installed plug-in folders.
+    The running copy stays loaded; the new one is used after the host is restarted. */
+bool StepFxEditor::Updater::install()
+{
+   #if JUCE_MAC
+    const auto cache = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
+                           .getChildFile ("Library/Caches/StepFlux/update-" + juce::String (latest.load()));
+    cache.deleteRecursively();
+    if (! cache.createDirectory().wasOk()) return false;
+
+    const auto zipFile = cache.getChildFile ("update.zip");
+    {
+        const juce::URL url ("https://github.com/Tim12iun/StepFX/releases/latest/download/StepFlux-macOS-update.zip");
+        auto in = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+                                             .withConnectionTimeoutMs (8000).withNumRedirectsToFollow (5)
+                                             .withExtraHeaders ("User-Agent: StepFlux"));
+        if (in == nullptr) return false;
+        juce::FileOutputStream out (zipFile);
+        if (! out.openedOk()) return false;
+        juce::HeapBlock<char> buf (65536);
+        for (;;)
+        {
+            if (threadShouldExit()) return false;
+            const auto n = in->read (buf, 65536);
+            if (n <= 0) break;
+            if (! out.write (buf, (size_t) n)) return false;
+        }
+    }
+    if (zipFile.getSize() < 1000000) return false; // not a plug-in archive
+
+    const auto fresh = cache.getChildFile ("new");
+    {
+        juce::ZipFile zip (zipFile);
+        if (zip.getNumEntries() < 4 || zip.uncompressTo (fresh).failed()) return false;
+    }
+    struct Item { const char* bundle; const char* folder; };
+    const Item items[] = { { "StepFlux.vst3", "VST3" }, { "StepFlux.component", "Components" } };
+    for (auto& it : items)
+    {
+        const auto src = fresh.getChildFile (it.bundle);
+        const auto bin = src.getChildFile ("Contents/MacOS/StepFlux");
+        if (! bin.existsAsFile() || bin.getSize() < 500000) return false;
+        bin.setExecutePermission (true);
+    }
+
+    int replaced = 0;
+    const juce::File roots[] = { juce::File ("/Library/Audio/Plug-Ins"),
+                                 juce::File::getSpecialLocation (juce::File::userHomeDirectory).getChildFile ("Library/Audio/Plug-Ins") };
+    int rootIndex = 0;
+    for (auto& root : roots)
+    {
+        ++rootIndex;
+        for (auto& it : items)
+        {
+            const auto target = root.getChildFile (it.folder).getChildFile (it.bundle);
+            if (! target.isDirectory()) continue;
+            const auto contents = target.getChildFile ("Contents");
+            const auto backup = cache.getChildFile ("old-" + juce::String (rootIndex) + "-" + it.folder);
+            if (! contents.moveFileTo (backup)) return false;
+            const auto src = fresh.getChildFile (it.bundle).getChildFile ("Contents");
+            // the second location needs its own copy, so copy instead of moving
+            if (! src.copyDirectoryTo (contents))
+            {
+                contents.deleteRecursively();
+                backup.moveFileTo (contents); // put the old version back
+                return false;
+            }
+            contents.getChildFile ("MacOS/StepFlux").setExecutePermission (true);
+            ++replaced;
+        }
+    }
+    return replaced > 0;
+   #else
+    return false;
+   #endif
+}
+
+void StepFxEditor::Updater::run()
+{
+    if (gUpdateInstalled.load()) { state = installed; return; }
+    if (check() && latest.load() > STEPFLUX_BUILD) state = available;
+    while (! threadShouldExit())
+    {
+        if (wantInstall.exchange (false) && state.load() == available)
+        {
+            state = installing;
+            const bool ok = install();
+            if (ok) gUpdateInstalled = true;
+            state = ok ? installed : failed;
+        }
+        wait (250);
+    }
 }
 
 StepFxEditor::~StepFxEditor()

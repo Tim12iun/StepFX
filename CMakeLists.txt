@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "")
 option(STEPFLUX_BUILD_TESTS "Build the console test runner" OFF)
+set(STEPFLUX_BUILD "0" CACHE STRING "Build number used by the update check (0 = local build, no check)")
 
 if(DEFINED JUCE_PATH)
     add_subdirectory(${JUCE_PATH} juce EXCLUDE_FROM_ALL)
@@ -23,9 +24,9 @@ if(APPLE)
 endif()
 
 juce_add_plugin(StepFlux
-    COMPANY_NAME "LionAudio"
-    BUNDLE_ID "com.lionaudio.stepflux"
-    PLUGIN_MANUFACTURER_CODE Lion
+    COMPANY_NAME "loomn"
+    BUNDLE_ID "com.loomn.stepflux"
+    PLUGIN_MANUFACTURER_CODE Loom
     PLUGIN_CODE Stfx
     FORMATS ${STEPFLUX_FORMATS}
     PRODUCT_NAME "StepFlux"
@@ -46,7 +47,8 @@ target_compile_definitions(StepFlux PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
-    JUCE_REPORT_APP_USAGE=0)
+    JUCE_REPORT_APP_USAGE=0
+    STEPFLUX_BUILD=${STEPFLUX_BUILD})
 
 target_link_libraries(StepFlux
     PRIVATE juce::juce_audio_utils

@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSTEPFLUX_BUILD_TESTS=ON ${{ matrix.cmake_args }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSTEPFLUX_BUILD_TESTS=ON -DSTEPFLUX_BUILD=${{ github.run_number }} ${{ matrix.cmake_args }}
 
       - name: Build
         run: cmake --build build --config Release --parallel 4
@@ -44,8 +44,8 @@ jobs:
           codesign --force --deep --sign - ~/Library/Audio/Plug-Ins/Components/StepFlux.component
           killall -9 AudioComponentRegistrar || true
           sleep 3
-          auval -a | grep -i lion || true
-          auval -v aufx Stfx Lion
+          auval -a | grep -i -e loom -e stepflux || true
+          auval -v aufx Stfx Loom
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
@@ -56,12 +56,44 @@ jobs:
           codesign --force --deep --sign - dist/StepFlux.vst3
           codesign --force --deep --sign - dist/StepFlux.component
           cp INSTALL.txt dist/
-          for i in 1 2 3 4 5; do
-            hdiutil create -volname StepFlux -srcfolder dist -ov -format UDZO StepFlux-macOS.dmg && break
-            sleep 5
-          done
-          test -f StepFlux-macOS.dmg
-          hdiutil verify StepFlux-macOS.dmg
+          ROOT=pkgroot/Library/Audio/Plug-Ins
+          mkdir -p "$ROOT/VST3" "$ROOT/Components" pkgscripts
+          cp -R dist/StepFlux.vst3 "$ROOT/VST3/"
+          cp -R dist/StepFlux.component "$ROOT/Components/"
+          cat > pkgscripts/postinstall <<'EOS'
+          #!/bin/bash
+          # remove older per-user copies so Live only sees one StepFlux, clear the download lock, refresh the AU cache
+          CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null)
+          if [ -z "$CONSOLE_USER" ] || [ "$CONSOLE_USER" = "root" ]; then CONSOLE_USER="$USER"; fi
+          USER_HOME=$(eval echo "~${CONSOLE_USER}")
+          if [ -n "$USER_HOME" ] && [ -d "$USER_HOME/Library/Audio/Plug-Ins" ]; then
+            rm -rf "$USER_HOME/Library/Audio/Plug-Ins/VST3/StepFlux.vst3" "$USER_HOME/Library/Audio/Plug-Ins/Components/StepFlux.component"
+          fi
+          xattr -cr /Library/Audio/Plug-Ins/VST3/StepFlux.vst3 /Library/Audio/Plug-Ins/Components/StepFlux.component || true
+          # the plug-in updates itself later, so the user has to own both bundles
+          if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ]; then
+            chown -R "$CONSOLE_USER" /Library/Audio/Plug-Ins/VST3/StepFlux.vst3 /Library/Audio/Plug-Ins/Components/StepFlux.component || true
+          fi
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          exit 0
+          EOS
+          chmod +x pkgscripts/postinstall
+          pkgbuild --analyze --root pkgroot components.plist
+          /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" components.plist
+          /usr/libexec/PlistBuddy -c "Set :1:BundleIsRelocatable false" components.plist
+          pkgbuild --root pkgroot --component-plist components.plist --scripts pkgscripts \
+            --identifier com.loomn.stepflux.pkg --version "0.1.${{ github.run_number }}" \
+            --install-location / StepFlux-macOS.pkg
+          pkgutil --payload-files StepFlux-macOS.pkg | head -n 20
+          (cd dist && zip -q -r -y ../StepFlux-macOS-update.zip StepFlux.vst3 StepFlux.component)
+          unzip -l StepFlux-macOS-update.zip | tail -n 3
+
+      - name: Validate VST3 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -sL -o pluginval.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+          unzip -q pluginval.zip
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --timeout-ms 120000 --validate dist/StepFlux.vst3
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -75,14 +107,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: StepFlux-${{ matrix.name }}
-          path: StepFlux-${{ matrix.name }}.${{ runner.os == 'macOS' && 'dmg' || 'zip' }}
+          path: StepFlux-${{ matrix.name }}.${{ runner.os == 'macOS' && 'pkg' || 'zip' }}
 
       - name: Publish release (macOS)
         if: runner.os == 'macOS' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "build-${{ github.run_number }}" StepFlux-macOS.dmg \
+          gh release create "build-${{ github.run_number }}" StepFlux-macOS.pkg StepFlux-macOS-update.zip \
             --repo "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "StepFlux build ${{ github.run_number }}" \
-            --notes "macOS: VST3 + AU (universal). Open the DMG, copy the plug-ins as described in INSTALL.txt."
+            --notes "macOS: VST3 + AU (universal). Run the installer package; it places both plug-ins in /Library/Audio/Plug-Ins."

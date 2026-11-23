@@ -200,7 +200,7 @@ private:
     ui::Laf laf;
     int sel = 0;
     int seenStateVersion = 0;
-    int lastFilterType = -1, lastSync = -1, lastOnMask = -1;
+    int lastFilterType = -1, lastSync = -1, lastOnMask = -1, lastUpdateState = -1;
     juce::Random rng;
 
     // processors
@@ -233,6 +233,22 @@ private:
     juce::Slider envA, envH, envR;
     ui::OrderStrip orderStrip;
     juce::TextButton globalPresetBtn;
+
+    // self update: asks GitHub for the newest published build and can install it in place
+    struct Updater : juce::Thread
+    {
+        enum State { idle = 0, available, installing, installed, failed };
+        Updater() : juce::Thread ("StepFlux updater") {}
+        ~Updater() override { stopThread (15000); }
+        void run() override;
+        bool check();
+        bool install();
+        std::atomic<int> latest { 0 }, state { idle };
+        std::atomic<bool> wantInstall { false };
+    };
+    Updater updater;
+    juce::TextButton updateBtn;
+    juce::Label buildLabel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StepFxEditor)
 };
